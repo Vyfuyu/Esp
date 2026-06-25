@@ -1,240 +1,157 @@
--- [[ CONFIG & VARIABLES ]] --
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
-local LocalPlayer = Players.LocalPlayer
+local Fluent = loadstring(game:HttpGet("https://github.com/dawid-bots/Fluent/releases/latest/download/main.lua"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-bots/Fluent/master/Addons/SaveManager.lua"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-bots/Fluent/master/Addons/InterfaceManager.lua"))()
 
-local Settings = {
-    SpeedEnabled = false,
-    WalkSpeed = 16,
-    NoclipEnabled = false,
-    EspEnabled = false
+local Window = Fluent:CreateWindow({
+    Title = "Premium Hub | Mobile Friendly",
+    SubTitle = "by Gemini AI",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    MinimizeKey = Enum.KeyCode.LeftControl -- Nhấn Ctrl trên PC hoặc bấm nút thu nhỏ trên Mobile
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Tính năng chính", Icon = "user" }),
+    Settings = Window:AddTab({ Title = "Cài đặt", Icon = "settings" })
 }
 
--- [[ SIMPLE MOBILE UI MENU ]] --
--- Tạo ScreenGui độc lập trong CoreGui để tránh bị mất khi reset nhân vật
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "SmartHubMobile"
-ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
+-- Khởi tạo biến cấu hình
+local Config = {
+    Speed = 16,
+    Noclip = false,
+    ESP = false
+}
 
--- Menu Chính
-local MainMenu = Instance.new("Frame")
-MainMenu.Name = "MainMenu"
-MainMenu.Size = UDim2.new(0, 220, 0, 280)
-MainMenu.Position = UDim2.new(0.5, -110, 0.3, 0)
-MainMenu.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MainMenu.BorderSizePixel = 0
-MainMenu.Active = true
-MainMenu.Draggable = true -- Hỗ trợ kéo thả trên Mobile
-MainMenu.Parent = ScreenGui
+-- SERVICE
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
--- Bo góc Menu
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainMenu
+-------------------------------------------------------------------------------
+-- CHỨC NĂNG 1: ESP (Định vị người chơi)
+-------------------------------------------------------------------------------
+local espHighlights = {}
 
--- Tiêu đề Menu
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
-Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Title.Text = "⚡ DELTA X - SMART HUB ⚡"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextSize = 14
-Title.Font = Enum.Font.SourceSansBold
-Title.Parent = MainMenu
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 10)
-TitleCorner.Parent = Title
-
--- Nút ẩn/hiển thị nhanh (Floating Button)
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(0, 50, 0, 50)
-ToggleButton.Position = UDim2.new(0, 10, 0, 10)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-ToggleButton.Text = "Menu"
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.Font = Enum.Font.SourceSansBold
-ToggleButton.TextSize = 14
-ToggleButton.Parent = ScreenGui
-local BtnCorner = Instance.new("UICorner")
-BtnCorner.CornerRadius = UDim.new(1, 0) -- Nút tròn
-BtnCorner.Parent = ToggleButton
-
-ToggleButton.MouseButton1Click:Connect(function()
-    MainMenu.Visible = not MainMenu.Visible
-end)
-
--- Hàm tạo Nút Bật/Tắt (Toggle)
-local function createToggle(name, position, callback)
-    local Button = Instance.new("TextButton")
-    Button.Size = UDim2.new(0, 180, 0, 35)
-    Button.Position = position
-    Button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    Button.Text = name .. " [OFF]"
-    Button.TextColor3 = Color3.fromRGB(200, 200, 200)
-    Button.Font = Enum.Font.SourceSans
-    Button.TextSize = 14
-    Button.Parent = MainMenu
+local function createESP(player)
+    if player == LocalPlayer then return end
     
-    local cCorner = Instance.new("UICorner")
-    cCorner.CornerRadius = UDim.new(0, 6)
-    cCorner.Parent = Button
-
-    local state = false
-    Button.MouseButton1Click:Connect(function()
-        state = not state
-        if state then
-            Button.BackgroundColor3 = Color3.fromRGB(0, 170, 100)
-            Button.Text = name .. " [ON]"
-        else
-            Button.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-            Button.Text = name .. " [OFF]"
+    local function applyESP(character)
+        if not character then return end
+        
+        -- Chờ RootPart xuất hiện
+        character:WaitForChild("HumanoidRootPart", 5)
+        
+        -- Tạo Highlight (Hiệu ứng viền xuyên tường)
+        if not character:FindFirstChild("ESPHighlight") then
+            local highlight = Instance.new("Highlight")
+            highlight.Name = "ESPHighlight"
+            highlight.Adornee = character
+            highlight.FillColor = Color3.fromRGB(255, 0, 0) -- Màu đỏ trong suốt
+            highlight.FillTransparency = 0.5
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255) -- Viền trắng
+            highlight.OutlineTransparency = 0
+            highlight.Enabled = Config.ESP
+            highlight.Parent = character
+            
+            espHighlights[player.UserId] = highlight
         end
-        callback(state)
-    end)
+    end
+    
+    player.CharacterAdded:Connect(applyESP)
+    if player.Character then applyESP(player.Character) end
 end
 
--- Hàm tạo ô nhập dữ liệu (TextBox cho Speed)
-local function createSlider(position, callback)
-    local TextBox = Instance.new("TextBox")
-    TextBox.Size = UDim2.new(0, 180, 0, 35)
-    TextBox.Position = position
-    TextBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-    TextBox.Text = "Tốc độ: 50"
-    TextBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    TextBox.Font = Enum.Font.SourceSans
-    TextBox.TextSize = 14
-    TextBox.Parent = MainMenu
-    
-    local tCorner = Instance.new("UICorner")
-    tCorner.CornerRadius = UDim.new(0, 6)
-    tCorner.Parent = TextBox
+-- Tải ESP cho người chơi hiện tại và người mới vào
+for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
+Players.PlayerAdded:Connect(createESP)
 
-    TextBox.FocusLost:Connect(function(enterPressed)
-        local num = tonumber(TextBox.Text:match("%d+"))
-        if num then
-            TextBox.Text = "Tốc độ: " .. num
-            callback(num)
-        else
-            TextBox.Text = "Tốc độ vô hiệu!"
-        end
-    end)
-end
-
----
-
--- [[ CHỨC NĂNG CHÍNH (FEATURES) ]] --
-
--- 1. Custom Speed (Bật/Tắt & Tùy chỉnh tốc độ)
-createToggle("Tùy Chỉnh Tốc Độ", UDim2.new(0, 20, 0, 60), function(val)
-    Settings.SpeedEnabled = val
-end)
-
-createSlider(UDim2.new(0, 20, 0, 105), function(val)
-    Settings.WalkSpeed = val
-end)
-
-RunService.Heartbeat:Connect(function()
-    if Settings.SpeedEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = Settings.WalkSpeed
-    elseif not Settings.SpeedEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-        LocalPlayer.Character.Humanoid.WalkSpeed = 16 -- Tốc độ mặc định
+-- Xóa dữ liệu khi người chơi thoát
+Players.PlayerRemoving:Connect(function(player)
+    if espHighlights[player.UserId] then
+        espHighlights[player.UserId] = nil
     end
 end)
 
--- 2. Noclip Xuyên Tường
-createToggle("Noclip Xuyên Tường", UDim2.new(0, 20, 0, 150), function(val)
-    Settings.NoclipEnabled = val
-end)
-
+-------------------------------------------------------------------------------
+-- CHỨC NĂNG 2 & 3: SPEED & NOCLIP
+-------------------------------------------------------------------------------
+-- Vòng lặp xử lý Speed và Noclip liên tục để tránh bị game reset
 RunService.Stepped:Connect(function()
-    if Settings.NoclipEnabled and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetChildren()) do
-            if part:IsA("BasePart") then
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    -- Xử lý Speed
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = Config.Speed
+    end
+    
+    -- Xử lý Noclip (Xuyên tường)
+    if Config.Noclip then
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
                 part.CanCollide = false
             end
         end
     end
 end)
 
--- 3. Smart ESP Phân Tích (Hiển thị tên, Khoảng cách & Box)
-createToggle("Định Vị ESP Người Chơi", UDim2.new(0, 20, 0, 195), function(val)
-    Settings.EspEnabled = val
-    if not val then
-        -- Xóa ESP khi tắt
-        for _, p in pairs(Players:GetPlayers()) do
-            if p.Character and p.Character:FindFirstChild("Highlight") then
-                p.Character.Highlight:Destroy()
-            end
-            if p.Character and p.Character:FindFirstChild("ESP_Billboard") then
-                p.Character.ESP_Billboard:Destroy()
+-------------------------------------------------------------------------------
+-- GIAO DIỆN MENU (UI CONTROLS)
+-------------------------------------------------------------------------------
+
+-- 1. Bật/Tắt ESP
+Tabs.Main:AddToggle("ESPToggle", {
+    Title = "Bật Định Vị (ESP)",
+    Default = false,
+    Callback = function(Value)
+        Config.ESP = Value
+        for _, highlight in pairs(espHighlights) do
+            if highlight then
+                highlight.Enabled = Value
             end
         end
     end
-end)
+})
 
-local function applyESP(player)
-    if player == LocalPlayer then return end
-    
-    RunService.RenderStepped:Connect(function()
-        if not Settings.EspEnabled then return end
-        
-        local char = player.Character
-        if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") and char.Humanoid.Health > 0 then
-            -- Tạo Highlight (Khung nhìn xuyên tường thông minh)
-            if not char:FindFirstChild("Highlight") then
-                local highlight = Instance.new("Highlight")
-                highlight.Name = "Highlight"
-                highlight.FillColor = Color3.fromRGB(255, 0, 0)
-                highlight.FillTransparency = 0.5
-                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-                highlight.OutlineTransparency = 0
-                highlight.Parent = char
-            end
-            
-            -- Tính khoảng cách và phân tích
-            local distance = math.floor((LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and (LocalPlayer.Character.HumanoidRootPart.Position - char.HumanoidRootPart.Position).Magnitude) or 0)
-            
-            -- Tạo Tag thông tin (Tên + Khoảng cách)
-            local billboard = char:FindFirstChild("ESP_Billboard")
-            if not billboard then
-                billboard = Instance.new("BillboardGui")
-                billboard.Name = "ESP_Billboard"
-                billboard.AlwaysOnTop = true
-                billboard.Size = UDim2.new(0, 200, 0, 50)
-                billboard.StudsOffset = Vector3.new(0, 3, 0)
-                
-                local label = Instance.new("TextLabel")
-                label.Name = "InfoLabel"
-                label.Size = UDim2.new(1, 0, 1, 0)
-                label.BackgroundTransparency = 1
-                label.TextColor3 = Color3.fromRGB(255, 255, 0)
-                label.TextSize = 12
-                label.Font = Enum.Font.SourceSansBold
-                label.Parent = billboard
-                
-                billboard.Parent = char
-            end
-            
-            -- Cập nhật text thời gian thực (Thông minh: Đổi màu theo khoảng cách nguy hiểm)
-            local label = billboard:FindFirstChild("InfoLabel")
-            if label then
-                label.Text = string.format("%s\n[%dm] - HP: %d", player.Name, distance, math.floor(char.Humanoid.Health))
-                if distance < 50 then
-                    label.TextColor3 = Color3.fromRGB(255, 50, 50) -- Gần (Nguy hiểm) -> Đỏ
-                else
-                    label.TextColor3 = Color3.fromRGB(50, 255, 50) -- Xa -> Xanh
-                end
-            end
-        else
-            -- Xóa nếu người chơi chết hoặc mất nhân vật
-            if char and char:FindFirstChild("Highlight") then char.Highlight:Destroy() end
-            if char and char:FindFirstChild("ESP_Billboard") then char.ESP_Billboard:Destroy() end
-        end
-    end)
-end
+-- 2. Bật/Tắt Noclip
+Tabs.Main:AddToggle("NoclipToggle", {
+    Title = "Xuyên tường (Noclip)",
+    Default = false,
+    Callback = function(Value)
+        Config.Noclip = Value
+    end
+})
 
--- Kích hoạt ESP cho người chơi hiện tại và người mới vào phòng
-for _, p in pairs(Players:GetPlayers()) do applyESP(p) end
-Players.PlayerAdded:Connect(applyESP)
+-- 3. Tùy chỉnh Tốc độ (Speed)
+local SpeedSlider = Tabs.Main:AddSlider("SpeedSlider", {
+    Title = "Tốc độ di chuyển (Speed)",
+    Description = "Tốc độ mặc định của Roblox là 16",
+    Default = 16,
+    Min = 16,
+    Max = 200,
+    Rounding = 0,
+    Callback = function(Value)
+        Config.Speed = Value
+    end
+})
+
+-- Thông báo khi chạy script thành công
+Fluent:Notify({
+    Title = "Premium Hub",
+    Content = "Script đã kích hoạt thành công!",
+    Duration = 5
+})
+
+-- Quản lý cấu hình hệ thống UI
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({})
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+
+Window:SelectTab(1)
+SaveManager:LoadAutoloadConfig()
