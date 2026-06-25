@@ -1,209 +1,61 @@
--- ==========================================
--- SCRIPT ĐÃ FIX: CHỐNG CHẶN HTTPGET & LOADSTRING
--- ==========================================
+-- [[ CẤU HÌNH VỪA PHẢI ]]
+local WALK_SPEED = 32 -- Tốc độ mặc định của Roblox là 16. Mức 32 là vừa phải, khó bị anti-cheat phát hiện tự động.
 
--- Chạy thử log để test executor
-print("---------------------------------")
-print("[SYSTEM] SCRIPT STARTING... OK!")
-print("---------------------------------")
-
--- KHỞI TẠO CẤU HÌNH CỤC BỘ
-local Config = { Speed = 16, Noclip = false, ESP = false }
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
-local espHighlights = {}
-
--------------------------------------------------------------------------------
--- 1. TỰ DỰNG UI GỐC (MOBILE FRIENDLY) - KHÔNG DÙNG LINK GITHUB
--------------------------------------------------------------------------------
-local CoreGui = game:GetService("CoreGui")
--- Tránh trùng lặp UI cũ nếu chạy lại script
-if CoreGui:FindFirstChild("PremiumHubMobile") then 
-    CoreGui.PremiumHubMobile:Destroy() 
-end
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "PremiumHubMobile"
-ScreenGui.Parent = CoreGui
-ScreenGui.ResetOnSpawn = false
-
--- Khung chính của Menu
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 320, 0, 240)
-MainFrame.Position = UDim2.new(0.5, -160, 0.4, -120)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true -- Cho phép kéo di chuyển trên màn hình mobile
-MainFrame.Parent = ScreenGui
-
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 8)
-UICorner.Parent = MainFrame
-
--- Thanh Tiêu Đề
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 35)
-Title.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Title.Text = "  PREMIUM HUB (FIXED MOBILE)"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 16
-Title.Parent = MainFrame
-
-local TitleCorner = Instance.new("UICorner")
-TitleCorner.CornerRadius = UDim.new(0, 8)
-TitleCorner.Parent = Title
-
--- NÚT BẬT/TẮT ĐỊNH VỊ (ESP)
-local ESPBtn = Instance.new("TextButton")
-ESPBtn.Size = UDim2.new(0, 280, 0, 40)
-ESPBtn.Position = UDim2.new(0, 20, 0, 55)
-ESPBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-ESPBtn.Text = "Định vị (ESP): OFF"
-ESPBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-ESPBtn.Font = Enum.Font.SourceSansBold
-ESPBtn.TextSize = 16
-ESPBtn.Parent = MainFrame
-
--- NÚT BẬT/TẮT XUYÊN TƯỜNG (NOCLIP)
-local NoclipBtn = Instance.new("TextButton")
-NoclipBtn.Size = UDim2.new(0, 280, 0, 40)
-NoclipBtn.Position = UDim2.new(0, 20, 0, 105)
-NoclipBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-NoclipBtn.Text = "Xuyên tường (Noclip): OFF"
-NoclipBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-NoclipBtn.Font = Enum.Font.SourceSansBold
-NoclipBtn.TextSize = 16
-NoclipBtn.Parent = MainFrame
-
--- Ô NHẬP TỐC ĐỘ (SPEED)
-local SpeedInput = Instance.new("TextBox")
-SpeedInput.Size = UDim2.new(0, 280, 0, 40)
-SpeedInput.Position = UDim2.new(0, 20, 0, 155)
-SpeedInput.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-SpeedInput.Text = "Nhập tốc độ (Mặc định: 16)"
-SpeedInput.TextColor3 = Color3.fromRGB(200, 200, 200)
-SpeedInput.Font = Enum.Font.SourceSansBold
-SpeedInput.TextSize = 14
-SpeedInput.ClearTextOnFocus = true
-SpeedInput.Parent = MainFrame
-
--- NÚT THU NHỎ MENU (MINIMIZE TOOGLE) DÀNH CHO MOBILE
-local ToggleMenuBtn = Instance.new("TextButton")
-ToggleMenuBtn.Size = UDim2.new(0, 50, 0, 50)
-ToggleMenuBtn.Position = UDim2.new(0, 10, 0, 10)
-ToggleMenuBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ToggleMenuBtn.Text = "MENU"
-ToggleMenuBtn.TextColor3 = Color3.fromRGB(0, 255, 150)
-ToggleMenuBtn.Font = Enum.Font.SourceSansBold
-ToggleMenuBtn.TextSize = 12
-ToggleMenuBtn.Parent = ScreenGui
-
-local RoundToggle = Instance.new("UICorner")
-RoundToggle.CornerRadius = UDim.new(1, 0)
-RoundToggle.Parent = ToggleMenuBtn
-
--- Xử lý ẩn/hiện menu khi bấm nút tròn
-ToggleMenuBtn.MouseButton1Click:Connect(function()
-    MainFrame.Visible = not MainFrame.Visible
-end)
-
--------------------------------------------------------------------------------
--- 2. XỬ LÝ LOGIC CHỨC NĂNG (ESP, SPEED, NOCLIP)
--------------------------------------------------------------------------------
-
--- Hàm tạo ESP dùng Highlight cục bộ
+-- [[ HÀM TẠO ESP TRONG SUỐT ]]
 local function createESP(player)
-    if player == LocalPlayer then return end
-    
+    if player == game.Players.LocalPlayer then return end
+
     local function applyESP(character)
         if not character then return end
-        character:WaitForChild("HumanoidRootPart", 10)
-        
-        if not character:FindFirstChild("LocalESPHighlight") then
-            local highlight = Instance.new("Highlight")
-            highlight.Name = "LocalESPHighlight"
-            highlight.Adornee = character
-            highlight.FillColor = Color3.fromRGB(255, 0, 0)
-            highlight.FillTransparency = 0.5
-            highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-            highlight.Enabled = Config.ESP
-            highlight.Parent = character
-            
-            espHighlights[player.UserId] = highlight
+        -- Chờ HumanoidRootPart xuất hiện
+        local hrp = character:WaitForChild("HumanoidRootPart", 10)
+        if not hrp then return end
+
+        -- Xóa ESP cũ nếu có để tránh trùng lặp khi người chơi hồi sinh
+        if hrp:FindFirstChild("HighlightESP") then
+            hrp.HighlightESP:Destroy()
         end
+
+        -- Tạo Highlight (Viền và màu phủ lên người chơi)
+        local highlight = Instance.new("Highlight")
+        highlight.Name = "HighlightESP"
+        highlight.FillColor = Color3.fromRGB(255, 0, 0) -- Màu đỏ trong suốt
+        highlight.FillTransparency = 0.5 -- Độ mờ bên trong
+        highlight.OutlineColor = Color3.fromRGB(255, 255, 255) -- Viền trắng
+        highlight.OutlineTransparency = 0 -- Hiện rõ viền
+        highlight.Adornee = character
+        highlight.Parent = hrp
     end
-    
+
+    -- Áp dụng khi nhân vật tải xong
+    if player.Character then
+        applyESP(player.Character)
+    end
     player.CharacterAdded:Connect(applyESP)
-    if player.Character then applyESP(player.Character) end
 end
 
-for _, p in ipairs(Players:GetPlayers()) do createESP(p) end
-Players.PlayerAdded:Connect(createESP)
-
--- Sự kiện click nút ESP
-ESPBtn.MouseButton1Click:Connect(function()
-    Config.ESP = not Config.ESP
-    if Config.ESP then
-        ESPBtn.Text = "Định vị (ESP): ON"
-        ESPBtn.TextColor3 = Color3.fromRGB(100, 255, 100)
-    else
-        ESPBtn.Text = "Định vị (ESP): OFF"
-        ESPBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-    end
-    
-    for _, highlight in pairs(espHighlights) do
-        if highlight then highlight.Enabled = Config.ESP end
-    end
-end)
-
--- Sự kiện click nút Noclip
-NoclipBtn.MouseButton1Click:Connect(function()
-    Config.Noclip = not Config.Noclip
-    if Config.Noclip then
-        NoclipBtn.Text = "Xuyên tường (Noclip): ON"
-        NoclipBtn.TextColor3 = Color3.fromRGB(100, 255, 100)
-    else
-        NoclipBtn.Text = "Xuyên tường (Noclip): OFF"
-        NoclipBtn.TextColor3 = Color3.fromRGB(255, 100, 100)
-    end
-end)
-
--- Sự kiện nhập Speed
-SpeedInput.FocusLost:Connect(function(enterPressed)
-    local num = tonumber(SpeedInput.Text)
-    if num then
-        Config.Speed = num
-        SpeedInput.Text = "Tốc độ hiện tại: " .. tostring(num)
-    else
-        Config.Speed = 16
-        SpeedInput.Text = "Nhập sai. Reset về: 16"
-    end
-end)
-
--- Vòng lặp tối ưu bằng Stepped chống Crash/Anti-cheat
-RunService.Stepped:Connect(function()
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    -- Xử lý Speed thay đổi liên tục
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if humanoid and humanoid.WalkSpeed ~= Config.Speed then
-        humanoid.WalkSpeed = Config.Speed
-    end
-    
-    -- Xử lý Noclip đổi trạng thái Collision của Part
-    if Config.Noclip then
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
+-- [[ HÀM TĂNG TỐC ĐỘ CHẠY TỰ ĐỘNG ]]
+local function loopSpeed()
+    game:GetService("RunService").Heartbeat:Connect(function()
+        pcall(function()
+            local localPlayer = game.Players.LocalPlayer
+            if localPlayer and localPlayer.Character and localPlayer.Character:FindFirstChild("Humanoid") then
+                localPlayer.Character.Humanoid.WalkSpeed = WALK_SPEED
             end
-        end
-    end
-end)
+        end)
+    end)
+end
 
-print("[SYSTEM] ALL FUNCTIONS LOADED COMPLETED.")
+-- [[ KHỞI CHẠY VÀ CẬP NHẬT KHI ĐỔI SERVER / NGƯỜI CHƠI MỚI ]]
+-- Quét toàn bộ người chơi hiện tại trong server
+for _, player in ipairs(game.Players:GetPlayers()) do
+    createESP(player)
+end
+
+-- Tự động áp dụng ESP cho người chơi mới tham gia server
+game.Players.PlayerAdded:Connect(createESP)
+
+-- Kích hoạt vòng lặp giữ tốc độ chạy
+loopSpeed()
+
+print("--- ESP & Speed đã được kích hoạt thành công ---")
