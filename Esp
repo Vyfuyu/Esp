@@ -1,0 +1,157 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Cấu hình tính năng
+local NoclipEnabled = false
+local NoclipKey = Enum.KeyCode.E -- Bấm phím E để bật/tắt Noclip
+
+-- Khởi tạo ScreenGui cho ESP & UI
+local EspGui = Instance.new("ScreenGui")
+EspGui.Name = "CyberpunkESP_V2"
+EspGui.ResetOnSpawn = false
+EspGui.Parent = game:CoreGui
+
+-- Thanh chỉ hướng ở giữa phía trên màn hình (AI Radar)
+local TopIndicator = Instance.new("Frame")
+TopIndicator.Size = UDim2.new(0, 350, 0, 30)
+TopIndicator.Position = UDim2.new(0.5, -175, 0, 40)
+TopIndicator.BackgroundTransparency = 0.4
+TopIndicator.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+TopIndicator.BorderSizePixel = 0
+TopIndicator.Parent = EspGui
+
+-- Thêm bo góc cho thanh Radar nhìn cho đẹp
+local IndicatorCorner = Instance.new("UICorner")
+IndicatorCorner.CornerRadius = UDim.new(0, 6)
+IndicatorCorner.Parent = TopIndicator
+
+local IndicatorText = Instance.new("TextLabel")
+IndicatorText.Size = UDim2.new(1, 0, 1, 0)
+IndicatorText.Text = "AI RADAR: SCANNING | NOCLIP: OFF [E]"
+IndicatorText.TextColor3 = Color3.fromRGB(0, 255, 255)
+IndicatorText.BackgroundTransparency = 1
+IndicatorText.Font = Enum.Font.RobotoMono
+IndicatorText.TextSize = 13
+IndicatorText.Parent = TopIndicator
+
+-- Hàm tạo hiệu ứng Rainbow (RGB)
+local function getRainbowColor()
+    local frequency = 0.5
+    local counter = tick()
+    local r = math.sin(frequency * counter + 0) * 127 + 128
+    local g = math.sin(frequency * counter + 2) * 127 + 128
+    local b = math.sin(frequency * counter + 4) * 127 + 128
+    return Color3.fromRGB(r, g, b)
+end
+
+-- ==========================================
+-- CHỨC NĂNG NOCLIP (XUYÊN TƯỜNG)
+-- ==========================================
+RunService.Stepped:Connect(function()
+    if NoclipEnabled and LocalPlayer.Character then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") and part.CanCollide then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Lắng nghe sự kiện bấm phím để bật/tắt Noclip
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == NoclipKey then
+        NoclipEnabled = not NoclipEnabled
+        
+        -- Cập nhật trạng thái lên thanh UI ở giữa màn hình
+        if NoclipEnabled then
+            IndicatorText.Text = "AI RADAR: SCANNING | NOCLIP: ENABLED"
+            IndicatorText.TextColor3 = Color3.fromRGB(255, 50, 50) -- Đổi sang màu đỏ cảnh báo khi bật Noclip
+        else
+            IndicatorText.Text = "AI RADAR: SCANNING | NOCLIP: OFF [E]"
+            IndicatorText.TextColor3 = Color3.fromRGB(0, 255, 255) -- Trả về màu Neon mặc định
+        end
+    end
+end)
+
+-- ==========================================
+-- CHỨC NĂNG ESP RAINBOW & Ô VUÔNG PHỤ
+-- ==========================================
+local function createESP(player)
+    if player == LocalPlayer then return end
+
+    local Box = Instance.new("Frame")
+    local DistanceLabel = Instance.new("TextLabel")
+    local InfoBox = Instance.new("Frame")
+    local InfoBoxCorner = Instance.new("UICorner")
+
+    Box.BackgroundTransparency = 1
+    Box.BorderSizePixel = 2
+    Box.Visible = false
+    Box.Parent = EspGui
+
+    -- Ô vuông nhỏ hiển thị thông tin khoảng cách
+    InfoBox.Size = UDim2.new(0, 55, 0, 20)
+    InfoBox.BackgroundTransparency = 0.3
+    InfoBox.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+    InfoBox.BorderSizePixel = 1
+    InfoBox.Parent = Box
+    
+    -- Bo góc cho ô vuông nhỏ theo phong cách hiện đại
+    InfoBoxCorner.CornerRadius = UDim.new(0, 4)
+    InfoBoxCorner.Parent = InfoBox
+
+    DistanceLabel.Size = UDim2.new(1, 0, 1, 0)
+    DistanceLabel.BackgroundTransparency = 1
+    DistanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    DistanceLabel.Font = Enum.Font.SourceSansBold
+    DistanceLabel.TextSize = 11
+    DistanceLabel.Parent = InfoBox
+
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") or not player.Character:FindFirstChild("Humanoid") or player.Character.Humanoid.Health <= 0 then
+            Box.Visible = false
+            return
+        end
+
+        local rootPart = player.Character.HumanoidRootPart
+        local screenPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+
+        if onScreen then
+            local distance = (Camera.CFrame.p - rootPart.Position).Magnitude
+            local boxSize = math.clamp(1000 / distance, 10, 150)
+
+            Box.Size = UDim2.new(0, boxSize, 0, boxSize)
+            Box.Position = UDim2.new(0, screenPos.X - boxSize/2, 0, screenPos.Y - boxSize/2)
+            
+            -- Đồng bộ màu Rainbow mượt mà cho cả viền lớn và viền ô vuông nhỏ
+            local rainbowColor = getRainbowColor()
+            Box.BorderColor3 = rainbowColor
+            InfoBox.BorderColor3 = rainbowColor
+
+            -- Vị trí ô vuông nhỏ (Lệch xuống góc dưới bên phải hộp ESP chính)
+            InfoBox.Position = UDim2.new(1, 4, 1, -20)
+            DistanceLabel.Text = math.floor(distance) .. "m"
+            
+            Box.Visible = true
+        else
+            Box.Visible = false
+        end
+    end)
+
+    player.CharacterRemoving:Connect(function()
+        Box:Destroy()
+        if connection then connection:Disconnect() end
+    end)
+end
+
+-- Khởi chạy hệ thống ESP
+for _, player in pairs(Players:GetPlayers()) do
+    createESP(player)
+end
+Players.PlayerAdded:Connect(createESP)
