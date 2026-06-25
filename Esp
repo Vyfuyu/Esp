@@ -1,15 +1,3 @@
---[[
-    ========================================================================
-    🔥 ADVANCED LIBRARY AUTO-FARM (INSTANT QUEUE & FAKE POSITION BYPASS) 🔥
-    ========================================================================
-    Tính năng nâng cấp:
-    1. Instant Queue: Xử lý song song tất cả các sách cùng lúc bằng luồng độc lập.
-    2. No Teleport Visible: Gửi vị trí đến mục tiêu rồi thu hồi về vị trí cũ 
-       ngay lập tức, giảm thiểu tối đa việc người khác nhìn thấy bạn bay khắp map.
-    3. Auto Refresh: Tự động cập nhật RootPart khi nhân vật hồi sinh/reset.
-    4. Loop AFK 24/7: Tự động nhặt tiếp khi có sách mới rơi ra.
-]]
-
 getgenv().Running = true
 
 local Players = game:GetService("Players")
@@ -21,7 +9,7 @@ local Loader = require(ReplicatedStorage.Packages.Loader)
 local ReplicaController = require(Loader.Shared.Utility.ReplicaController)
 local BooksData = require(Loader.Shared.Data.Books)
 
--- 1. CHỜ REPLICA CONTROLLER LOAD XONG
+--// WAIT LIBRARY REPLICA SAFE
 local LibraryReplica
 for _, r in pairs(ReplicaController._replicas) do
     if r.Class == "Library" then
@@ -31,123 +19,126 @@ for _, r in pairs(ReplicaController._replicas) do
 end
 
 if not LibraryReplica then
-    ReplicaController.ReplicaOfClassCreated("Library", function(r)
-        LibraryReplica = r
+    ReplicaController.ReplicaOfClassCreated("Library", function(rep)
+        LibraryReplica = rep
     end)
+
     repeat task.wait() until LibraryReplica
 end
 
 local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
 
--- 2. ĐẢM BẢO NHÂN VẬT LUÔN ĐƯỢC CẬP NHẬT (ANTI-BUG KHI CHẾT/RESET)
-local function getRoot()
-    local char = player.Character or player.CharacterAdded:Wait()
-    return char:WaitForChild("HumanoidRootPart", 5)
+local Library = Workspace:WaitForChild("Library")
+local BooksFolder = Library:WaitForChild("Books")
+
+--// CAMERA FIX (stable hơn)
+player.CameraMode = Enum.CameraMode.Classic
+task.defer(function()
+    task.wait(0.2)
+    player.CameraMinZoomDistance = 0.5
+end)
+
+--// CACHE SHELVES
+local shelfModels = {}
+for _, v in ipairs(CollectionService:GetTagged("Shelf")) do
+    shelfModels[v.Name] = v
 end
 
-local BooksFolder = Workspace.Library:WaitForChild("Books")
+--// TRACKED BOOKS (tránh xử lý lại)
+local processed = {}
 
--- 3. CACHE KỆ SÁCH ĐỂ TRA CỨU SIÊU TỐC
-local shelves = {}
-for _, s in ipairs(CollectionService:GetTagged("Shelf")) do
-    shelves[s.Name] = s
-end
-
-local shelfDataCache = LibraryReplica.Data.Shelves
-
--- 4. FAKE POSITION BYPASS (Dịch chuyển ẩn danh, giật về vị trí cũ lập tức)
-local function executeAtPosition(targetPos, actionCallback)
-    local root = getRoot()
+local function teleport(pos)
     if not root then return end
+    root.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+    task.wait(0.12)
+end
 
-    -- Lưu lại vị trí đứng an toàn ban đầu của bạn (Ví dụ: Bạn đang đứng trốn ở góc tường)
-    local originalCFrame = root.CFrame
+local function getSeries(shelfId)
+    local data = LibraryReplica.Data.Shelves[shelfId]
+    if not data then return nil end
 
-    -- Đưa nhân vật đến mục tiêu (Sách hoặc Kệ)
-    root.CFrame = CFrame.new(targetPos + Vector3.new(0, 1.5, 0))
-    
-    -- Chờ khoảng 1-2 khung hình rất nhỏ để Server ghi nhận gói tin vị trí (Bypass khoảng cách)
-    task.wait(0.02)
+    for _, b in pairs(data.Books) do
+        local name = typeof(b) == "Instance" and b.Name or b
+        local series = name:match("^(.-)_(.+)$")
+        if series then return series end
+    end
+end
 
-    -- Thực hiện hành động (Grab hoặc Place)
-    if actionCallback then
-        actionCallback()
+local function findShelf(series, genre, count)
+    for id, data in pairs(LibraryReplica.Data.Shelves) do
+        if not data.Completed and data.Category == genre then
+            local shelf = shelfModels[id]
+            if shelf and shelf:GetAttribute("Width") == count then
+                if getSeries(id) == series then
+                    return shelf, id
+                end
+            end
+        end
     end
 
-    -- Trả ngay lập tức về vị trí ban đầu (Người khác sẽ không kịp nhìn thấy bạn dịch chuyển)
-    root.CFrame = originalCFrame
-end
-
--- 5. HÀM XỬ LÝ SONG SONG CHO TỪNG CUỐN SÁCH (INSTANT QUEUE)
-local function queueProcessBook(book)
-    if not book:IsA("BasePart") and not book:IsA("Model") then return end
-
-    local name = book.Name
-    local series, vol = name:match("^(.-)_(.+)$")
-    local volNum = tonumber(vol)
-
-    if not (series and volNum) then return end
-
-    local genre, info = BooksData.GetCategory(series)
-    if not (genre and info) then return end
-
-    -- Tìm kệ thích hợp từ Cache dữ liệu
-    for id, data in pairs(shelfDataCache) do
+    for id, data in pairs(LibraryReplica.Data.Shelves) do
         if not data.Completed and data.Category == genre then
-            local model = shelves[id]
-            if model and model:GetAttribute("Width") == info.VolumeCount then
-                
-                -- Nếu kệ chưa có cuốn tập này, tiến hành xử lý
-                if not data.Books[tostring(volNum)] then
-                    
-                    -- Tạo luồng chạy độc lập hoàn toàn (Xử lý song song giả lập)
-                    task.spawn(function()
-                        -- Bước 1: Ẩn danh tới nhặt sách
-                        executeAtPosition(book:GetPivot().Position, function()
-                            LibraryReplica:FireServer("Grab", book)
-                        end)
-
-                        -- Giãn cách siêu ngắn để tránh bị Server giới hạn packet (Rate Limit Remote)
-                        task.wait(0.04)
-
-                        -- Bước 2: Ẩn danh tới cất vào kệ
-                        if getgenv().Running and shelves[id] then
-                            executeAtPosition(shelves[id]:GetPivot().Position, function()
-                                LibraryReplica:FireServer("Place", shelves[id], volNum - 1)
-                            end)
-                        end
-                    end)
-
-                    break -- Thoát vòng lặp tìm kệ cho cuốn sách này vì đã xếp lịch xong
+            local shelf = shelfModels[id]
+            if shelf and shelf:GetAttribute("Width") == count then
+                if not getSeries(id) and next(data.Books) == nil then
+                    return shelf, id
                 end
             end
         end
     end
 end
 
--- 6. KÍCH HOẠT HỆ THỐNG CHẠY SONG SONG VÀ THEO DÕI AFK
+local function safeFire(action, ...)
+    local args = {...}
+    for i = 1, 2 do
+        local ok = pcall(function()
+            LibraryReplica:FireServer(action, table.unpack(args))
+        end)
+        if ok then return true end
+        task.wait(0.1)
+    end
+    return false
+end
+
 task.spawn(function()
-    print("[🔥] Khởi động Auto Farm Library Cao Cấp...")
-    
-    -- QUÉT TẤT CẢ SÁCH ĐANG CÓ SẴN (Instant Queue Toàn Bộ)
-    local allBooks = BooksFolder:GetChildren()
-    for _, book in ipairs(allBooks) do
+    for _, book in ipairs(BooksFolder:GetChildren()) do
         if not getgenv().Running then break end
-        queueProcessBook(book)
-        -- Tránh tụt FPS đột ngột nếu số lượng sách ban đầu quá lớn (>15 cuốn)
-        if #allBooks > 15 then task.wait(0.01) end 
+
+        if processed[book] then continue end
+
+        local series, vol = book.Name:match("^(.-)_(.+)$")
+        local volNum = tonumber(vol)
+
+        if series and volNum then
+            local genre, info = BooksData.GetCategory(series)
+
+            if genre and info then
+                local shelf = findShelf(series, genre, info.VolumeCount)
+
+                if shelf then
+                    local shelfData = LibraryReplica.Data.Shelves[shelf.Name]
+
+                    if not (shelfData and shelfData.Books[tostring(volNum)]) then
+                        processed[book] = true
+
+                        teleport(book:GetPivot().Position)
+                        safeFire("Grab", book)
+
+                        task.wait(0.15)
+
+                        teleport(shelf:GetPivot().Position)
+                        safeFire("Place", shelf, volNum - 1)
+
+                        task.wait(0.25)
+                    end
+                end
+            end
+        end
+
+        task.wait(0.03)
     end
 
-    print("[⚡] Đã đưa tất cả sách vào hàng đợi! Đang trong trạng thái Auto AFK 24/7...")
-
-    -- TỰ ĐỘNG XỬ LÝ KHI CÓ SÁCH MỚI SPAWN (Real-time Farm)
-    local childAddedConnection
-    childAddedConnection = BooksFolder.ChildAdded:Connect(function(newBook)
-        if not getgenv().Running then
-            childAddedConnection:Disconnect()
-            return
-        end
-        -- Chờ một chút để thuộc tính CFrame của sách đồng bộ hẳn sang phía Client rồi nhặt
-        task.delay(0.1, queueProcessBook, newBook)
-    end)
+    getgenv().Running = false
 end)
