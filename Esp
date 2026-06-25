@@ -9,91 +9,136 @@ local Loader = require(ReplicatedStorage.Packages.Loader)
 local ReplicaController = require(Loader.Shared.Utility.ReplicaController)
 local BooksData = require(Loader.Shared.Data.Books)
 
-local LibraryReplica = nil
+--// WAIT LIBRARY REPLICA SAFE
+local LibraryReplica
 for _, r in pairs(ReplicaController._replicas) do
-    if r.Class == "Library" then LibraryReplica = r break end
+    if r.Class == "Library" then
+        LibraryReplica = r
+        break
+    end
 end
+
 if not LibraryReplica then
-    ReplicaController.ReplicaOfClassCreated("Library", function(replica) LibraryReplica = replica end)
-    while not LibraryReplica do task.wait() end
+    ReplicaController.ReplicaOfClassCreated("Library", function(rep)
+        LibraryReplica = rep
+    end)
+
+    repeat task.wait() until LibraryReplica
 end
 
-local Library = Workspace.Library
-local BooksFolder = Library.Books
 local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
 
+local Library = Workspace:WaitForChild("Library")
+local BooksFolder = Library:WaitForChild("Books")
+
+--// CAMERA FIX (stable hơn)
 player.CameraMode = Enum.CameraMode.Classic
-player.CameraMinZoomDistance = 20
-task.spawn(function() task.wait(0.1) player.CameraMinZoomDistance = 0.5 end)
+task.defer(function()
+    task.wait(0.2)
+    player.CameraMinZoomDistance = 0.5
+end)
 
+--// CACHE SHELVES
 local shelfModels = {}
-for _, shelfModel in ipairs(CollectionService:GetTagged("Shelf")) do
-    shelfModels[shelfModel.Name] = shelfModel
+for _, v in ipairs(CollectionService:GetTagged("Shelf")) do
+    shelfModels[v.Name] = v
 end
 
-local function getShelfAssignedSeries(shelfId)
-    local shelfData = LibraryReplica.Data.Shelves[shelfId]
-    if not shelfData then return nil end
-    for _, placedBook in pairs(shelfData.Books) do
-        local bookName = typeof(placedBook) == "Instance" and placedBook.Name or placedBook
-        local seriesName = bookName:match("^(.-)_(.+)$")
-        if seriesName then return seriesName end
+--// TRACKED BOOKS (tránh xử lý lại)
+local processed = {}
+
+local function teleport(pos)
+    if not root then return end
+    root.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
+    task.wait(0.12)
+end
+
+local function getSeries(shelfId)
+    local data = LibraryReplica.Data.Shelves[shelfId]
+    if not data then return nil end
+
+    for _, b in pairs(data.Books) do
+        local name = typeof(b) == "Instance" and b.Name or b
+        local series = name:match("^(.-)_(.+)$")
+        if series then return series end
     end
 end
 
-local function findShelfForSeries(seriesName, genreName, volumeCount)
-    for shelfId, shelfData in pairs(LibraryReplica.Data.Shelves) do
-        if not shelfData.Completed and shelfData.Category == genreName then
-            local shelfModel = shelfModels[shelfId]
-            if shelfModel and shelfModel:GetAttribute("Width") == volumeCount then
-                if getShelfAssignedSeries(shelfId) == seriesName then return shelfModel end
+local function findShelf(series, genre, count)
+    for id, data in pairs(LibraryReplica.Data.Shelves) do
+        if not data.Completed and data.Category == genre then
+            local shelf = shelfModels[id]
+            if shelf and shelf:GetAttribute("Width") == count then
+                if getSeries(id) == series then
+                    return shelf, id
+                end
             end
         end
     end
-    for shelfId, shelfData in pairs(LibraryReplica.Data.Shelves) do
-        if not shelfData.Completed and shelfData.Category == genreName then
-            local shelfModel = shelfModels[shelfId]
-            if shelfModel and shelfModel:GetAttribute("Width") == volumeCount then
-                if not getShelfAssignedSeries(shelfId) and next(shelfData.Books) == nil then return shelfModel end
+
+    for id, data in pairs(LibraryReplica.Data.Shelves) do
+        if not data.Completed and data.Category == genre then
+            local shelf = shelfModels[id]
+            if shelf and shelf:GetAttribute("Width") == count then
+                if not getSeries(id) and next(data.Books) == nil then
+                    return shelf, id
+                end
             end
         end
     end
 end
 
-local function teleportTo(obj)
-    local char = player.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local part = obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")) or obj
-    if root and part then
-        root.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
-        task.wait(0.05)
+local function safeFire(action, ...)
+    local args = {...}
+    for i = 1, 2 do
+        local ok = pcall(function()
+            LibraryReplica:FireServer(action, table.unpack(args))
+        end)
+        if ok then return true end
+        task.wait(0.1)
     end
+    return false
 end
 
 task.spawn(function()
     for _, book in ipairs(BooksFolder:GetChildren()) do
         if not getgenv().Running then break end
-        task.wait(0.02)
-        
-        local seriesName, volumeStr = book.Name:match("^(.-)_(.+)$")
-        local volumeNum = tonumber(volumeStr)
-        if seriesName and volumeNum then
-            local genreName, bookInfo = BooksData.GetCategory(seriesName)
-            if genreName and bookInfo then
-                local shelfModel = findShelfForSeries(seriesName, genreName, bookInfo.VolumeCount)
-                if shelfModel then
-                    local shelfData = LibraryReplica.Data.Shelves[shelfModel.Name]
-                    if not (shelfData and shelfData.Books[tostring(volumeNum)]) then
-                        teleportTo(book)
-                        LibraryReplica:FireServer("Grab", book)
-                        task.wait(0.1)
-                        teleportTo(shelfModel)
-                        LibraryReplica:FireServer("Place", shelfModel, volumeNum - 1)
-                        task.wait(0.4)
+
+        if processed[book] then continue end
+
+        local series, vol = book.Name:match("^(.-)_(.+)$")
+        local volNum = tonumber(vol)
+
+        if series and volNum then
+            local genre, info = BooksData.GetCategory(series)
+
+            if genre and info then
+                local shelf = findShelf(series, genre, info.VolumeCount)
+
+                if shelf then
+                    local shelfData = LibraryReplica.Data.Shelves[shelf.Name]
+
+                    if not (shelfData and shelfData.Books[tostring(volNum)]) then
+                        processed[book] = true
+
+                        teleport(book:GetPivot().Position)
+                        safeFire("Grab", book)
+
+                        task.wait(0.15)
+
+                        teleport(shelf:GetPivot().Position)
+                        safeFire("Place", shelf, volNum - 1)
+
+                        task.wait(0.25)
                     end
                 end
             end
         end
+
+        task.wait(0.03)
     end
+
     getgenv().Running = false
 end)
