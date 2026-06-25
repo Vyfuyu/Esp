@@ -1,123 +1,99 @@
--- [[ KỊCH BẢN TỰ SETUP MENU & TELEPORT LOOP ]]
+getgenv().Running = true
 
--- 1. Khởi tạo các dịch vụ cần thiết
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local CoreGui = game:GetService("CoreGui")
-local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
 
--- Tránh lỗi nếu nhân vật chưa tải xong
-local function getCharacter()
-    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Loader = require(ReplicatedStorage.Packages.Loader)
+local ReplicaController = require(Loader.Shared.Utility.ReplicaController)
+local BooksData = require(Loader.Shared.Data.Books)
+
+local LibraryReplica = nil
+for _, r in pairs(ReplicaController._replicas) do
+    if r.Class == "Library" then LibraryReplica = r break end
+end
+if not LibraryReplica then
+    ReplicaController.ReplicaOfClassCreated("Library", function(replica) LibraryReplica = replica end)
+    while not LibraryReplica do task.wait() end
 end
 
--- 2. Biến quản lý trạng thái
-local isLooping = false
-local teleportCooldown = 1.5 -- Thời gian delay giữa mỗi người (giây)
+local Library = Workspace.Library
+local BooksFolder = Library.Books
+local player = Players.LocalPlayer
 
--- 3. Tạo Giao Diện (UI) từ đầu
--- Tạo ScreenGui độc lập để không bị mất khi reset nhân vật
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "CustomTpMenu"
-ScreenGui.ResetOnSpawn = false
--- Bảo mật: Đưa vào CoreGui nếu có quyền, nếu không thì vào PlayerGui
-pcall(function()
-    ScreenGui.Parent = CoreGui
-end)
-if not ScreenGui.Parent then
-    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+player.CameraMode = Enum.CameraMode.Classic
+player.CameraMinZoomDistance = 20
+task.spawn(function() task.wait(0.1) player.CameraMinZoomDistance = 0.5 end)
+
+local shelfModels = {}
+for _, shelfModel in ipairs(CollectionService:GetTagged("Shelf")) do
+    shelfModels[shelfModel.Name] = shelfModel
 end
 
--- Khung Menu chính (Main Frame)
-local MainFrame = Instance.new("Frame")
-MainFrame.Name = "MainFrame"
-MainFrame.Size = UDim2.new(0, 180, 0, 90)
-MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0) -- Vị trí góc trên bên trái
-MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true -- Cho phép kéo thả menu trên màn hình
-MainFrame.Parent = ScreenGui
+local function getShelfAssignedSeries(shelfId)
+    local shelfData = LibraryReplica.Data.Shelves[shelfId]
+    if not shelfData then return nil end
+    for _, placedBook in pairs(shelfData.Books) do
+        local bookName = typeof(placedBook) == "Instance" and placedBook.Name or placedBook
+        local seriesName = bookName:match("^(.-)_(.+)$")
+        if seriesName then return seriesName end
+    end
+end
 
--- Bo góc cho Menu
-local FrameCorner = Instance.new("UICorner")
-FrameCorner.CornerRadius = UDim.new(0, 8)
-FrameCorner.Parent = MainFrame
+local function findShelfForSeries(seriesName, genreName, volumeCount)
+    for shelfId, shelfData in pairs(LibraryReplica.Data.Shelves) do
+        if not shelfData.Completed and shelfData.Category == genreName then
+            local shelfModel = shelfModels[shelfId]
+            if shelfModel and shelfModel:GetAttribute("Width") == volumeCount then
+                if getShelfAssignedSeries(shelfId) == seriesName then return shelfModel end
+            end
+        end
+    end
+    for shelfId, shelfData in pairs(LibraryReplica.Data.Shelves) do
+        if not shelfData.Completed and shelfData.Category == genreName then
+            local shelfModel = shelfModels[shelfId]
+            if shelfModel and shelfModel:GetAttribute("Width") == volumeCount then
+                if not getShelfAssignedSeries(shelfId) and next(shelfData.Books) == nil then return shelfModel end
+            end
+        end
+    end
+end
 
--- Tiêu đề Menu
-local Title = Instance.new("TextLabel")
-Title.Name = "Title"
-Title.Size = UDim2.new(1, 0, 0, 30)
-Title.BackgroundTransparency = 1
-Title.Text = "TP LOOP MENU"
-Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 14
-Title.Parent = MainFrame
+local function teleportTo(obj)
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local part = obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")) or obj
+    if root and part then
+        root.CFrame = CFrame.new(part.Position + Vector3.new(0, 2, 0))
+        task.wait(0.05)
+    end
+end
 
--- Nút Bật/Tắt (Toggle Button)
-local ToggleBtn = Instance.new("TextButton")
-ToggleBtn.Name = "ToggleBtn"
-ToggleBtn.Size = UDim2.new(0, 140, 0, 40)
-ToggleBtn.Position = UDim2.new(0.5, -70, 0.5, -5)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50) -- Đỏ (Đang tắt)
-ToggleBtn.Text = "AUTO TP: OFF"
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleBtn.Font = Enum.Font.SourceSansBold
-ToggleBtn.TextSize = 16
-ToggleBtn.Parent = MainFrame
-
--- Bo góc cho Nút
-local BtnCorner = Instance.new("UICorner")
-BtnCorner.CornerRadius = UDim.new(0, 6)
-BtnCorner.Parent = ToggleBtn
-
--- 4. Logic Xử Lý Dịch Chuyển (Teleport Logic)
-local function startTeleportLoop()
-    task.spawn(function()
-        while isLooping do
-            local allPlayers = Players:GetPlayers()
-            local teleportedAny = false
-
-            for _, targetPlayer in ipairs(allPlayers) do
-                -- Kiểm tra nếu vòng lặp bị tắt đột ngột
-                if not isLooping then break end
-
-                -- Không tự dịch chuyển đến chính mình và kiểm tra người chơi hợp lệ
-                if targetPlayer ~= LocalPlayer and targetPlayer.Character then
-                    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-                    local myChar = getCharacter()
-                    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-
-                    if targetRoot and myRoot then
-                        -- Tiến hành dịch chuyển ra phía trên đầu mục tiêu một chút (tránh kẹt đất)
-                        myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 2, 0)
-                        teleportedAny = true
-                        task.wait(teleportCooldown)
+task.spawn(function()
+    for _, book in ipairs(BooksFolder:GetChildren()) do
+        if not getgenv().Running then break end
+        task.wait(0.02)
+        
+        local seriesName, volumeStr = book.Name:match("^(.-)_(.+)$")
+        local volumeNum = tonumber(volumeStr)
+        if seriesName and volumeNum then
+            local genreName, bookInfo = BooksData.GetCategory(seriesName)
+            if genreName and bookInfo then
+                local shelfModel = findShelfForSeries(seriesName, genreName, bookInfo.VolumeCount)
+                if shelfModel then
+                    local shelfData = LibraryReplica.Data.Shelves[shelfModel.Name]
+                    if not (shelfData and shelfData.Books[tostring(volumeNum)]) then
+                        teleportTo(book)
+                        LibraryReplica:FireServer("Grab", book)
+                        task.wait(0.1)
+                        teleportTo(shelfModel)
+                        LibraryReplica:FireServer("Place", shelfModel, volumeNum - 1)
+                        task.wait(0.4)
                     end
                 end
             end
-
-            -- Nếu trong server không có ai khác, đợi 1 giây rồi quét lại
-            if not teleportedAny then
-                task.wait(1)
-            end
         end
-    end)
-end
-
--- 5. Lắng nghe sự kiện click nút
-ToggleBtn.MouseButton1Click:Connect(function()
-    isLooping = not isLooping
-    
-    if isLooping then
-        -- Trạng thái BẬT
-        TweenService:Create(ToggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(50, 180, 50)}):Play()
-        ToggleBtn.Text = "AUTO TP: ON"
-        startTeleportLoop()
-    else
-        -- Trạng thái TẮT
-        TweenService:Create(ToggleBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(200, 50, 50)}):Play()
-        ToggleBtn.Text = "AUTO TP: OFF"
     end
+    getgenv().Running = false
 end)
