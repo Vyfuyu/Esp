@@ -1,16 +1,97 @@
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
-print(" [Auto-Farm]: Đang quét các quả cầu trên sân... Đã kích hoạt!")
+-- Biến trạng thái (Mặc định là BẬT khi mới chạy script)
+local _G.AutoFarmEnabled = true
 
--- Hàm kiểm tra xem một Part có phải là quả cầu nhặt được không
+----------------------------------------------------------------
+-- UI: TẠO NÚT ON/OFF NHỎ XÍU TRÊN MÀN HÌNH
+----------------------------------------------------------------
+-- Xóa GUI cũ nếu bạn lỡ bấm execute nhiều lần
+if CoreGui:FindFirstChild("OrbFarmGui") then
+    CoreGui.OrbFarmGui:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "OrbFarmGui"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = ScreenGui
+-- Định dạng kích thước nút nhỏ gọn (60x30 pixels) và đặt ở góc trên bên trái
+ToggleButton.Size = UDim2.new(0, 60, 0, 30)
+ToggleButton.Position = UDim2.new(0, 10, 0, 50) 
+ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Màu xanh lá ban đầu
+ToggleButton.Text = "AUTO: ON"
+ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ToggleButton.Font = Enum.Font.SourceSansBold
+ToggleButton.TextSize = 14
+
+-- Bo góc cho nút nhìn đẹp hơn
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 6)
+UICorner.Parent = ToggleButton
+
+-- Tạo hiệu ứng kéo thả nút trên màn hình (để bạn thích dời đi đâu thì dời)
+local UserInputService = game:GetService("UserInputService")
+local dragging, dragInput, dragStart, startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+ToggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleButton.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
+
+-- Sự kiện khi bấm vào nút
+ToggleButton.MouseButton1Click:Connect(function()
+    _G.AutoFarmEnabled = not _G.AutoFarmEnabled
+    if _G.AutoFarmEnabled then
+        ToggleButton.Text = "AUTO: ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Xanh lá
+        print("🚀 [Auto-Farm]: ĐÃ BẬT")
+    else
+        ToggleButton.Text = "AUTO: OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60) -- Đỏ
+        print("🛑 [Auto-Farm]: ĐÃ TẮT")
+    end
+end)
+
+----------------------------------------------------------------
+-- LOGIC: LOGIC QUÉT VÀ TELEPORT QUẢ CẦU
+----------------------------------------------------------------
 local function isOrb(object)
     if object:IsA("BasePart") and not object:IsDescendantOf(LocalPlayer.Character) then
-        -- Loại bỏ các object không phải vật phẩm (sân cỏ, khán đài, baseplate...)
         local nameLower = string.lower(object.Name)
         if nameLower ~= "baseplate" and nameLower ~= "terrain" and nameLower ~= "field" and object.CanTouch == true then
-            -- Thường quả cầu nhặt sẽ có TouchTransmitter (vùng chạm) hoặc nằm trong Folder riêng
             if object:FindFirstChildOfClass("TouchTransmitter") or object.Parent.Name:match("Orb") or object.Name:match("Orb") or object.Name:match("Star") then
                 return true
             end
@@ -19,7 +100,6 @@ local function isOrb(object)
     return false
 end
 
--- Hàm tìm quả cầu gần nhất hiện tại
 local function getClosestOrb()
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
@@ -28,7 +108,6 @@ local function getClosestOrb()
     local closestOrb = nil
     local shortestDistance = math.huge
 
-    -- Quét toàn bộ Workspace để tìm quả cầu
     for _, object in ipairs(Workspace:GetDescendants()) do
         if isOrb(object) then
             local distance = (hrp.Position - object.Position).Magnitude
@@ -41,41 +120,42 @@ local function getClosestOrb()
     return closestOrb
 end
 
--- Vòng lặp Teleport chính
+-- Vòng lặp chính
 task.spawn(function()
     while true do
-        task.wait(0.05) -- Tốc độ quét cực nhanh (0.05 giây một lần)
+        task.wait(0.05)
         
-        local character = LocalPlayer.Character
-        local hrp = character and character:FindFirstChild("HumanoidRootPart")
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        
-        if hrp and humanoid and humanoid.Health > 0 then
-            local targetOrb = getClosestOrb()
+        -- Chỉ chạy khi biến trạng thái đang là TRUE (ON)
+        if _G.AutoFarmEnabled then
+            local character = LocalPlayer.Character
+            local hrp = character and character:FindFirstChild("HumanoidRootPart")
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             
-            if targetOrb and targetOrb:IsDescendantOf(Workspace) then
-                -- Dịch chuyển tức thời đến tọa độ quả cầu
-                hrp.CFrame = targetOrb.CFrame
+            if hrp and humanoid and humanoid.Health > 0 then
+                local targetOrb = getClosestOrb()
                 
-                -- Đợi một chút cực ngắn để game kịp nhận va chạm nhặt quả cầu
-                local startTime = os.clock()
-                repeat 
-                    task.wait() 
-                until not targetOrb:IsDescendantOf(Workspace) or (os.clock() - startTime > 0.2)
+                if targetOrb and targetOrb:IsDescendantOf(Workspace) then
+                    hrp.CFrame = targetOrb.CFrame
+                    local startTime = os.clock()
+                    repeat 
+                        task.wait() 
+                    until not targetOrb:IsDescendantOf(Workspace) or (os.clock() - startTime > 0.2) or not _G.AutoFarmEnabled
+                end
             end
         end
     end
 end)
 
--- BẮT KHÍ PHÁT SINH: Nếu có quả cầu mới spam ra, ưu tiên xử lý ngay
+-- Đón đầu các quả cầu vừa mới spam
 Workspace.DescendantAdded:Connect(function(descendant)
+    if not _G.AutoFarmEnabled then return end
+    
     local character = LocalPlayer.Character
     local hrp = character and character:FindFirstChild("HumanoidRootPart")
     
     if hrp and isOrb(descendant) then
-        -- Quả cầu mới vừa xuất hiện -> Tele thẳng tới luôn
-        task.wait(0.02) -- Chờ nó ổn định vị trí trên sân
-        if descendant:IsA("BasePart") and descendant:IsDescendantOf(Workspace) then
+        task.wait(0.02)
+        if descendant:IsA("BasePart") and descendant:IsDescendantOf(Workspace) and _G.AutoFarmEnabled then
             hrp.CFrame = descendant.CFrame
         end
     end
