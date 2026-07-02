@@ -3,12 +3,12 @@ local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- Biến trạng thái (Mặc định là BẬT khi mới chạy script)
+-- Biến trạng thái toàn cục
 _G.BlinkFarmEnabled = true
-local MaxDistance = 250 -- Bán kính quét quả cầu xung quanh bạn
+local MaxDistance = 250 -- Bán kính quét
 
 ----------------------------------------------------------------
--- UI: TẠO NÚT ON/OFF NHỎ GỌN TRÊN MÀN HÌNH
+-- UI: NÚT ON/OFF NHỎ GỌN (BẤM LÀ NGẮT/BẬT LẬP TỨC)
 ----------------------------------------------------------------
 if CoreGui:FindFirstChild("BlinkFarmGui") then
     CoreGui.BlinkFarmGui:Destroy()
@@ -23,8 +23,8 @@ local ToggleButton = Instance.new("TextButton")
 ToggleButton.Name = "ToggleButton"
 ToggleButton.Parent = ScreenGui
 ToggleButton.Size = UDim2.new(0, 65, 0, 30)
-ToggleButton.Position = UDim2.new(0, 10, 0, 50) -- Vị trí góc trên bên trái
-ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Màu xanh lá
+ToggleButton.Position = UDim2.new(0, 10, 0, 50)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
 ToggleButton.Text = "BLINK: ON"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
@@ -34,52 +34,36 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 6)
 UICorner.Parent = ToggleButton
 
--- Tạo hiệu ứng kéo thả nút di chuyển tự do trên màn hình
+-- Kéo thả nút
 local UserInputService = game:GetService("UserInputService")
 local dragging, dragInput, dragStart, startPos
-
 local function update(input)
     local delta = input.Position - dragStart
     ToggleButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
-
 ToggleButton.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = ToggleButton.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
-        end)
+        dragging = true dragStart = input.Position startPos = ToggleButton.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
     end
 end)
+ToggleButton.InputChanged:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end end)
+UserInputService.InputChanged:Connect(function(input) if input == dragInput and dragging then update(input) end end)
 
-ToggleButton.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then update(input) end
-end)
-
--- Sự kiện Bật/Tắt khi ấn nút
+-- Bấm nút
 ToggleButton.MouseButton1Click:Connect(function()
     _G.BlinkFarmEnabled = not _G.BlinkFarmEnabled
     if _G.BlinkFarmEnabled then
         ToggleButton.Text = "BLINK: ON"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
-        print(" [Blink-Farm]: ĐÃ BẬT")
     else
         ToggleButton.Text = "BLINK: OFF"
         ToggleButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
-        print(" [Blink-Farm]: ĐÃ TẮT")
     end
 end)
 
 ----------------------------------------------------------------
--- LOGIC: CHẠY LIÊN TỤC QUÉT VÀ ĂN QUẢ CẦU
+-- LOGIC KIỂM TRA VÀ TÌM QUẢ CẦU
 ----------------------------------------------------------------
 local function isOrb(object)
     if object:IsA("BasePart") and not object:IsDescendantOf(LocalPlayer.Character) then
@@ -93,11 +77,31 @@ local function isOrb(object)
     return false
 end
 
--- Vòng lặp chính quét liên tục
+-- Hàm tìm nhanh 1 quả cầu gần nhất để xử lý lập tức thay vì ôm đồm cả rổ
+local function getTargetOrb(pos)
+    local closestOrb = nil
+    local shortestDistance = MaxDistance
+
+    for _, object in ipairs(Workspace:GetDescendants()) do
+        if isOrb(object) and object:IsDescendantOf(Workspace) then
+            local distance = (pos - object.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                closestOrb = object
+            end
+        end
+    end
+    return closestOrb
+end
+
+----------------------------------------------------------------
+-- VÒNG LẶP CHÍNH (WHILE TRUE CHẠY VÔ HẠN)
+----------------------------------------------------------------
 task.spawn(function()
-    print(" [Blink-Farm]: Hệ thống quét liên tục đã bắt đầu!")
+    print(" [Blink-Farm]: Đã sửa lỗi loop - Hệ thống bắt đầu farm liên tục!")
+    
     while true do
-        task.wait(0.01) -- Đặt độ trễ cực thấp để chạy liên tục không ngừng nghỉ
+        task.wait(0.01) -- Reset vòng quét cực nhanh sau 0.01 giây
         
         if _G.BlinkFarmEnabled then
             local character = LocalPlayer.Character
@@ -105,26 +109,17 @@ task.spawn(function()
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             
             if hrp and humanoid and humanoid.Health > 0 then
-                -- Ghi nhớ vị trí bạn đang đứng yên ban đầu
                 local originalCFrame = hrp.CFrame
                 
-                -- Duyệt và ăn cuốn chiếu các quả cầu tìm thấy
-                for _, object in ipairs(Workspace:GetDescendants()) do
-                    if not _G.BlinkFarmEnabled then break end -- Dừng ngay nếu bấm nút OFF
-                    
-                    if isOrb(object) and object:IsDescendantOf(Workspace) then
-                        local distance = (originalCFrame.Position - object.Position).Magnitude
-                        
-                        if distance <= MaxDistance then
-                            -- Tốc biến đến lụm -> Về lại chỗ cũ ngay lập tức (0.01s)
-                            hrp.CFrame = object.CFrame
-                            task.wait(0.01)
-                            hrp.CFrame = originalCFrame
-                            
-                            -- Chờ một nhịp siêu ngắn để game kịp xóa quả cầu cũ và tránh quá tải cấu hình
-                            task.wait(0.01)
-                        end
-                    end
+                -- Tìm đúng 1 mục tiêu gần nhất
+                local target = getTargetOrb(originalCFrame.Position)
+                
+                if target then
+                    -- Tốc biến đến ăn rồi về luôn trong chớp mắt
+                    hrp.CFrame = target.CFrame
+                    task.wait(0.01) -- Chờ server nhận diện
+                    hrp.CFrame = originalCFrame
+                    task.wait(0.01) -- Giãn cách chống crash game
                 end
             end
         end
