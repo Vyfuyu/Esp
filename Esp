@@ -1,144 +1,89 @@
-getgenv().Running = true
-
+-- SCRIPT TRINH SÁT: Chạy script này trước, sau đó đi nhặt quả cầu bằng tay
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local LogService = game:GetService("LogService")
+
+print("🔍 [Hệ thống]: Đang bật chế độ trinh sát... Hãy đi nhặt vài quả cầu bằng tay!")
+
+-- Hàm tạo ra đoạn code hoàn chỉnh dựa trên dữ liệu phân tích được
+local function GenerateFinalScript(parentName, sampleOrbName)
+    local finalCode = [[
+-- =======================================================
+-- CODE TỰ ĐỘNG NHẶT QUẢ CẦU ĐÃ ĐƯỢC PHÂN TÍCH THÀNH CÔNG
+-- =======================================================
 local Workspace = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
 
-local Loader = require(ReplicatedStorage.Packages.Loader)
-local ReplicaController = require(Loader.Shared.Utility.ReplicaController)
-local BooksData = require(Loader.Shared.Data.Books)
-
---// WAIT LIBRARY REPLICA SAFE
-local LibraryReplica
-for _, r in pairs(ReplicaController._replicas) do
-    if r.Class == "Library" then
-        LibraryReplica = r
-        break
-    end
+-- Tìm khu vực chứa quả cầu dựa trên phân tích
+local TargetFolder = Workspace:FindFirstChild("%s", true) 
+if not TargetFolder then 
+    TargetFolder = Workspace -- Nếu không tìm thấy folder riêng, quét toàn bộ Workspace
 end
 
-if not LibraryReplica then
-    ReplicaController.ReplicaOfClassCreated("Library", function(rep)
-        LibraryReplica = rep
-    end)
+local function getClosestOrb()
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = character.HumanoidRootPart
+    local closestOrb = nil
+    local shortestDistance = math.huge
 
-    repeat task.wait() until LibraryReplica
-end
-
-local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local root = char:WaitForChild("HumanoidRootPart")
-
-local Library = Workspace:WaitForChild("Library")
-local BooksFolder = Library:WaitForChild("Books")
-
---// CAMERA FIX (stable hơn)
-player.CameraMode = Enum.CameraMode.Classic
-task.defer(function()
-    task.wait(0.2)
-    player.CameraMinZoomDistance = 0.5
-end)
-
---// CACHE SHELVES
-local shelfModels = {}
-for _, v in ipairs(CollectionService:GetTagged("Shelf")) do
-    shelfModels[v.Name] = v
-end
-
---// TRACKED BOOKS (tránh xử lý lại)
-local processed = {}
-
-local function teleport(pos)
-    if not root then return end
-    root.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0))
-    task.wait(0.12)
-end
-
-local function getSeries(shelfId)
-    local data = LibraryReplica.Data.Shelves[shelfId]
-    if not data then return nil end
-
-    for _, b in pairs(data.Books) do
-        local name = typeof(b) == "Instance" and b.Name or b
-        local series = name:match("^(.-)_(.+)$")
-        if series then return series end
-    end
-end
-
-local function findShelf(series, genre, count)
-    for id, data in pairs(LibraryReplica.Data.Shelves) do
-        if not data.Completed and data.Category == genre then
-            local shelf = shelfModels[id]
-            if shelf and shelf:GetAttribute("Width") == count then
-                if getSeries(id) == series then
-                    return shelf, id
-                end
+    for _, orb in ipairs(TargetFolder:GetDescendants()) do
+        -- Kiểm tra đúng tên quả cầu đã phân tích: "%s"
+        if orb:IsA("BasePart") and (orb.Name == "%s" or orb:FindFirstChildOfClass("TouchTransmitter")) then
+            local distance = (hrp.Position - orb.Position).Magnitude
+            if distance < shortestDistance and distance < 300 then -- Bán kính quét 300 mét
+                shortestDistance = distance
+                closestOrb = orb
             end
         end
     end
-
-    for id, data in pairs(LibraryReplica.Data.Shelves) do
-        if not data.Completed and data.Category == genre then
-            local shelf = shelfModels[id]
-            if shelf and shelf:GetAttribute("Width") == count then
-                if not getSeries(id) and next(data.Books) == nil then
-                    return shelf, id
-                end
-            end
-        end
-    end
-end
-
-local function safeFire(action, ...)
-    local args = {...}
-    for i = 1, 2 do
-        local ok = pcall(function()
-            LibraryReplica:FireServer(action, table.unpack(args))
-        end)
-        if ok then return true end
-        task.wait(0.1)
-    end
-    return false
+    return closestOrb
 end
 
 task.spawn(function()
-    for _, book in ipairs(BooksFolder:GetChildren()) do
-        if not getgenv().Running then break end
-
-        if processed[book] then continue end
-
-        local series, vol = book.Name:match("^(.-)_(.+)$")
-        local volNum = tonumber(vol)
-
-        if series and volNum then
-            local genre, info = BooksData.GetCategory(series)
-
-            if genre and info then
-                local shelf = findShelf(series, genre, info.VolumeCount)
-
-                if shelf then
-                    local shelfData = LibraryReplica.Data.Shelves[shelf.Name]
-
-                    if not (shelfData and shelfData.Books[tostring(volNum)]) then
-                        processed[book] = true
-
-                        teleport(book:GetPivot().Position)
-                        safeFire("Grab", book)
-
-                        task.wait(0.15)
-
-                        teleport(shelf:GetPivot().Position)
-                        safeFire("Place", shelf, volNum - 1)
-
-                        task.wait(0.25)
-                    end
-                end
+    print("🚀 [Auto-Farm]: Đã kích hoạt chạy tự động!")
+    while true do
+        task.wait(0.1)
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        
+        if humanoid and humanoid.Health > 0 then
+            local targetOrb = getClosestOrb()
+            if targetOrb then
+                -- Bạn có thể đổi sang dịch chuyển (Teleport) bằng cách dùng: character.HumanoidRootPart.CFrame = targetOrb.CFrame
+                humanoid:MoveTo(targetOrb.Position)
+                repeat task.wait() until not targetOrb:IsDescendantOf(workspace) or (character.HumanoidRootPart.Position - targetOrb.Position).Magnitude < 3
             end
         end
-
-        task.wait(0.03)
     end
+end)
+]]
+    -- Điền thông số phân tích vào chuỗi code
+    return string.format(finalCode, parentName, sampleOrbName, sampleOrbName)
+end
 
-    getgenv().Running = false
+-- Theo dõi va chạm của nhân vật để phân tích quả cầu
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+character.DescendantAdded:Connect(function(descendant)
+    if descendant:IsA("TouchTransmitter") then
+        local part = descendant.Parent
+        -- Loại bỏ các phần thân của nhân vật và mặt đất thông thường
+        if part and part.Name ~= "Terrain" and not part:IsDescendantOf(character) then
+            local parentFolder = part.Parent
+            local parentName = parentFolder and parentFolder.Name or "Workspace"
+            local orbName = part.Name
+            
+            print("=======================================================")
+            print("🎯 ĐÃ PHÂN TÍCH ĐƯỢC CẤU TRÚC QUẢ CẦU VỪA CHẠM VÀO:")
+            print(" - Tên quả cầu (Orb Name): " .. orbName)
+            print(" - Nằm trong Thư mục (Folder): " .. parentName)
+            print("=======================================================")
+            print("👇 ĐOẠN CODE HOÀN CHỈNH CỦA BẠN ĐỂ SAO CHÉP DƯỚI ĐÂY: 👇")
+            
+            -- Xuất code ra Console
+            print(GenerateFinalScript(parentName, orbName))
+            print("=======================================================")
+        end
+    end
 end)
