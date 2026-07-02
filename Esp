@@ -4,39 +4,37 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
 -- Biến trạng thái (Mặc định là BẬT khi mới chạy script)
-local _G.AutoFarmEnabled = true
+_G.BlinkFarmEnabled = true
+local MaxDistance = 250 -- Bán kính quét quả cầu xung quanh bạn
 
 ----------------------------------------------------------------
--- UI: TẠO NÚT ON/OFF NHỎ XÍU TRÊN MÀN HÌNH
+-- UI: TẠO NÚT ON/OFF NHỎ GỌN TRÊN MÀN HÌNH
 ----------------------------------------------------------------
--- Xóa GUI cũ nếu bạn lỡ bấm execute nhiều lần
-if CoreGui:FindFirstChild("OrbFarmGui") then
-    CoreGui.OrbFarmGui:Destroy()
+if CoreGui:FindFirstChild("BlinkFarmGui") then
+    CoreGui.BlinkFarmGui:Destroy()
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "OrbFarmGui"
+ScreenGui.Name = "BlinkFarmGui"
 ScreenGui.Parent = CoreGui
 ScreenGui.ResetOnSpawn = false
 
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Name = "ToggleButton"
 ToggleButton.Parent = ScreenGui
--- Định dạng kích thước nút nhỏ gọn (60x30 pixels) và đặt ở góc trên bên trái
-ToggleButton.Size = UDim2.new(0, 60, 0, 30)
-ToggleButton.Position = UDim2.new(0, 10, 0, 50) 
-ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Màu xanh lá ban đầu
-ToggleButton.Text = "AUTO: ON"
+ToggleButton.Size = UDim2.new(0, 65, 0, 30)
+ToggleButton.Position = UDim2.new(0, 10, 0, 50) -- Vị trí góc trên bên trái
+ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Màu xanh lá
+ToggleButton.Text = "BLINK: ON"
 ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleButton.Font = Enum.Font.SourceSansBold
-ToggleButton.TextSize = 14
+ToggleButton.TextSize = 13
 
--- Bo góc cho nút nhìn đẹp hơn
 local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 6)
 UICorner.Parent = ToggleButton
 
--- Tạo hiệu ứng kéo thả nút trên màn hình (để bạn thích dời đi đâu thì dời)
+-- Tạo hiệu ứng kéo thả nút di chuyển tự do trên màn hình
 local UserInputService = game:GetService("UserInputService")
 local dragging, dragInput, dragStart, startPos
 
@@ -50,11 +48,8 @@ ToggleButton.InputBegan:Connect(function(input)
         dragging = true
         dragStart = input.Position
         startPos = ToggleButton.Position
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
@@ -66,27 +61,25 @@ ToggleButton.InputChanged:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        update(input)
-    end
+    if input == dragInput and dragging then update(input) end
 end)
 
--- Sự kiện khi bấm vào nút
+-- Sự kiện Bật/Tắt khi ấn nút
 ToggleButton.MouseButton1Click:Connect(function()
-    _G.AutoFarmEnabled = not _G.AutoFarmEnabled
-    if _G.AutoFarmEnabled then
-        ToggleButton.Text = "AUTO: ON"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113) -- Xanh lá
-        print("🚀 [Auto-Farm]: ĐÃ BẬT")
+    _G.BlinkFarmEnabled = not _G.BlinkFarmEnabled
+    if _G.BlinkFarmEnabled then
+        ToggleButton.Text = "BLINK: ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+        print(" [Blink-Farm]: ĐÃ BẬT")
     else
-        ToggleButton.Text = "AUTO: OFF"
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60) -- Đỏ
-        print("🛑 [Auto-Farm]: ĐÃ TẮT")
+        ToggleButton.Text = "BLINK: OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(231, 76, 60)
+        print(" [Blink-Farm]: ĐÃ TẮT")
     end
 end)
 
 ----------------------------------------------------------------
--- LOGIC: LOGIC QUÉT VÀ TELEPORT QUẢ CẦU
+-- LOGIC: CHẠY LIÊN TỤC QUÉT VÀ ĂN QUẢ CẦU
 ----------------------------------------------------------------
 local function isOrb(object)
     if object:IsA("BasePart") and not object:IsDescendantOf(LocalPlayer.Character) then
@@ -100,63 +93,40 @@ local function isOrb(object)
     return false
 end
 
-local function getClosestOrb()
-    local character = LocalPlayer.Character
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-
-    local closestOrb = nil
-    local shortestDistance = math.huge
-
-    for _, object in ipairs(Workspace:GetDescendants()) do
-        if isOrb(object) then
-            local distance = (hrp.Position - object.Position).Magnitude
-            if distance < shortestDistance then
-                shortestDistance = distance
-                closestOrb = object
-            end
-        end
-    end
-    return closestOrb
-end
-
--- Vòng lặp chính
+-- Vòng lặp chính quét liên tục
 task.spawn(function()
+    print(" [Blink-Farm]: Hệ thống quét liên tục đã bắt đầu!")
     while true do
-        task.wait(0.05)
+        task.wait(0.01) -- Đặt độ trễ cực thấp để chạy liên tục không ngừng nghỉ
         
-        -- Chỉ chạy khi biến trạng thái đang là TRUE (ON)
-        if _G.AutoFarmEnabled then
+        if _G.BlinkFarmEnabled then
             local character = LocalPlayer.Character
             local hrp = character and character:FindFirstChild("HumanoidRootPart")
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             
             if hrp and humanoid and humanoid.Health > 0 then
-                local targetOrb = getClosestOrb()
+                -- Ghi nhớ vị trí bạn đang đứng yên ban đầu
+                local originalCFrame = hrp.CFrame
                 
-                if targetOrb and targetOrb:IsDescendantOf(Workspace) then
-                    hrp.CFrame = targetOrb.CFrame
-                    local startTime = os.clock()
-                    repeat 
-                        task.wait() 
-                    until not targetOrb:IsDescendantOf(Workspace) or (os.clock() - startTime > 0.2) or not _G.AutoFarmEnabled
+                -- Duyệt và ăn cuốn chiếu các quả cầu tìm thấy
+                for _, object in ipairs(Workspace:GetDescendants()) do
+                    if not _G.BlinkFarmEnabled then break end -- Dừng ngay nếu bấm nút OFF
+                    
+                    if isOrb(object) and object:IsDescendantOf(Workspace) then
+                        local distance = (originalCFrame.Position - object.Position).Magnitude
+                        
+                        if distance <= MaxDistance then
+                            -- Tốc biến đến lụm -> Về lại chỗ cũ ngay lập tức (0.01s)
+                            hrp.CFrame = object.CFrame
+                            task.wait(0.01)
+                            hrp.CFrame = originalCFrame
+                            
+                            -- Chờ một nhịp siêu ngắn để game kịp xóa quả cầu cũ và tránh quá tải cấu hình
+                            task.wait(0.01)
+                        end
+                    end
                 end
             end
-        end
-    end
-end)
-
--- Đón đầu các quả cầu vừa mới spam
-Workspace.DescendantAdded:Connect(function(descendant)
-    if not _G.AutoFarmEnabled then return end
-    
-    local character = LocalPlayer.Character
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    
-    if hrp and isOrb(descendant) then
-        task.wait(0.02)
-        if descendant:IsA("BasePart") and descendant:IsDescendantOf(Workspace) and _G.AutoFarmEnabled then
-            hrp.CFrame = descendant.CFrame
         end
     end
 end)
