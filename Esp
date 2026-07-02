@@ -1,89 +1,82 @@
--- SCRIPT TRINH SÁT: Chạy script này trước, sau đó đi nhặt quả cầu bằng tay
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local LogService = game:GetService("LogService")
-
-print("🔍 [Hệ thống]: Đang bật chế độ trinh sát... Hãy đi nhặt vài quả cầu bằng tay!")
-
--- Hàm tạo ra đoạn code hoàn chỉnh dựa trên dữ liệu phân tích được
-local function GenerateFinalScript(parentName, sampleOrbName)
-    local finalCode = [[
--- =======================================================
--- CODE TỰ ĐỘNG NHẶT QUẢ CẦU ĐÃ ĐƯỢC PHÂN TÍCH THÀNH CÔNG
--- =======================================================
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- Tìm khu vực chứa quả cầu dựa trên phân tích
-local TargetFolder = Workspace:FindFirstChild("%s", true) 
-if not TargetFolder then 
-    TargetFolder = Workspace -- Nếu không tìm thấy folder riêng, quét toàn bộ Workspace
+print(" [Auto-Farm]: Đang quét các quả cầu trên sân... Đã kích hoạt!")
+
+-- Hàm kiểm tra xem một Part có phải là quả cầu nhặt được không
+local function isOrb(object)
+    if object:IsA("BasePart") and not object:IsDescendantOf(LocalPlayer.Character) then
+        -- Loại bỏ các object không phải vật phẩm (sân cỏ, khán đài, baseplate...)
+        local nameLower = string.lower(object.Name)
+        if nameLower ~= "baseplate" and nameLower ~= "terrain" and nameLower ~= "field" and object.CanTouch == true then
+            -- Thường quả cầu nhặt sẽ có TouchTransmitter (vùng chạm) hoặc nằm trong Folder riêng
+            if object:FindFirstChildOfClass("TouchTransmitter") or object.Parent.Name:match("Orb") or object.Name:match("Orb") or object.Name:match("Star") then
+                return true
+            end
+        end
+    end
+    return false
 end
 
+-- Hàm tìm quả cầu gần nhất hiện tại
 local function getClosestOrb()
     local character = LocalPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
-    local hrp = character.HumanoidRootPart
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
     local closestOrb = nil
     local shortestDistance = math.huge
 
-    for _, orb in ipairs(TargetFolder:GetDescendants()) do
-        -- Kiểm tra đúng tên quả cầu đã phân tích: "%s"
-        if orb:IsA("BasePart") and (orb.Name == "%s" or orb:FindFirstChildOfClass("TouchTransmitter")) then
-            local distance = (hrp.Position - orb.Position).Magnitude
-            if distance < shortestDistance and distance < 300 then -- Bán kính quét 300 mét
+    -- Quét toàn bộ Workspace để tìm quả cầu
+    for _, object in ipairs(Workspace:GetDescendants()) do
+        if isOrb(object) then
+            local distance = (hrp.Position - object.Position).Magnitude
+            if distance < shortestDistance then
                 shortestDistance = distance
-                closestOrb = orb
+                closestOrb = object
             end
         end
     end
     return closestOrb
 end
 
+-- Vòng lặp Teleport chính
 task.spawn(function()
-    print("🚀 [Auto-Farm]: Đã kích hoạt chạy tự động!")
     while true do
-        task.wait(0.1)
+        task.wait(0.05) -- Tốc độ quét cực nhanh (0.05 giây một lần)
+        
         local character = LocalPlayer.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
         local humanoid = character and character:FindFirstChildOfClass("Humanoid")
         
-        if humanoid and humanoid.Health > 0 then
+        if hrp and humanoid and humanoid.Health > 0 then
             local targetOrb = getClosestOrb()
-            if targetOrb then
-                -- Bạn có thể đổi sang dịch chuyển (Teleport) bằng cách dùng: character.HumanoidRootPart.CFrame = targetOrb.CFrame
-                humanoid:MoveTo(targetOrb.Position)
-                repeat task.wait() until not targetOrb:IsDescendantOf(workspace) or (character.HumanoidRootPart.Position - targetOrb.Position).Magnitude < 3
+            
+            if targetOrb and targetOrb:IsDescendantOf(Workspace) then
+                -- Dịch chuyển tức thời đến tọa độ quả cầu
+                hrp.CFrame = targetOrb.CFrame
+                
+                -- Đợi một chút cực ngắn để game kịp nhận va chạm nhặt quả cầu
+                local startTime = os.clock()
+                repeat 
+                    task.wait() 
+                until not targetOrb:IsDescendantOf(Workspace) or (os.clock() - startTime > 0.2)
             end
         end
     end
 end)
-]]
-    -- Điền thông số phân tích vào chuỗi code
-    return string.format(finalCode, parentName, sampleOrbName, sampleOrbName)
-end
 
--- Theo dõi va chạm của nhân vật để phân tích quả cầu
-local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-character.DescendantAdded:Connect(function(descendant)
-    if descendant:IsA("TouchTransmitter") then
-        local part = descendant.Parent
-        -- Loại bỏ các phần thân của nhân vật và mặt đất thông thường
-        if part and part.Name ~= "Terrain" and not part:IsDescendantOf(character) then
-            local parentFolder = part.Parent
-            local parentName = parentFolder and parentFolder.Name or "Workspace"
-            local orbName = part.Name
-            
-            print("=======================================================")
-            print("🎯 ĐÃ PHÂN TÍCH ĐƯỢC CẤU TRÚC QUẢ CẦU VỪA CHẠM VÀO:")
-            print(" - Tên quả cầu (Orb Name): " .. orbName)
-            print(" - Nằm trong Thư mục (Folder): " .. parentName)
-            print("=======================================================")
-            print("👇 ĐOẠN CODE HOÀN CHỈNH CỦA BẠN ĐỂ SAO CHÉP DƯỚI ĐÂY: 👇")
-            
-            -- Xuất code ra Console
-            print(GenerateFinalScript(parentName, orbName))
-            print("=======================================================")
+-- BẮT KHÍ PHÁT SINH: Nếu có quả cầu mới spam ra, ưu tiên xử lý ngay
+Workspace.DescendantAdded:Connect(function(descendant)
+    local character = LocalPlayer.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    
+    if hrp and isOrb(descendant) then
+        -- Quả cầu mới vừa xuất hiện -> Tele thẳng tới luôn
+        task.wait(0.02) -- Chờ nó ổn định vị trí trên sân
+        if descendant:IsA("BasePart") and descendant:IsDescendantOf(Workspace) then
+            hrp.CFrame = descendant.CFrame
         end
     end
 end)
